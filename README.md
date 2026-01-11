@@ -167,5 +167,5 @@ k8s/
 ## 5. Ingress Controller 설정
 ### 1) edge, ingress - nginx 적용
 ```text
-kubectl apply -k k8s/edge/ingress-nginx
+kubectl apply -k ./edge/ingress-nginx
 ```

@@ -52,6 +52,20 @@ spec:
           image: registry.k8s.io/ingress-nginx/controller:v1.9.6
           imagePullPolicy: IfNotPresent
 
+
+          # --------------------------------------------------
+          # Pod 정보(POD_NAME/POD_NAMESPACE) 환경변수
+          # -------------------------------------------------
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
           # --------------------------------------------------
           # ingress-nginx 실행 옵션
           # --------------------------------------------------
