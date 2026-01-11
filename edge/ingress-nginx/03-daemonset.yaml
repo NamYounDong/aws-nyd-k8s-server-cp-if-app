@@ -101,7 +101,7 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /healthz
               port: 10254
             initialDelaySeconds: 10
             periodSeconds: 10
