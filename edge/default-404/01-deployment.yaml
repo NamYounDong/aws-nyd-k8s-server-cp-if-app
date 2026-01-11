@@ -89,6 +89,13 @@ spec:
               # ConfigMap 전체가 아니라 특정 키만 파일로 마운트
               subPath: nginx.conf
 
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: nginx-tmp
+              mountPath: /tmp
+
       volumes:
         - name: conf
           configMap:
