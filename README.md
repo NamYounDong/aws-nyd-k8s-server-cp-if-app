@@ -88,12 +88,43 @@ sudo kubeadm init \
 mkdir -p $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
-
-3) Worker 노드 Join ( Control Plane 과 Worker Node 연결 )
-- Control Plane에서 출력된 join 명령을 Worker 서버에서 그대로 실행
-
 ```
 
+### 1-2) Worker 노드 Join ( Control Plane 과 Worker Node 연결 )
+```text
+1) 토큰 생성 : kubeadm token create --print-join-command
+- 일회성/유효기간 있는 인증 토큰
+- 기본 유효기간: 24시간
+2) Control Plane 서버에서 아래 명령어를 실행하고, 출력된 join 명령을 Worker 서버에서 그대로 실행
+- ※ 토큰 생성하면 자동으로 명령어 작성되서 나오므로 그대로 노드 워커에 명령어 실행(아래는 예시)
+- ※ AWS 기준 보안 그룹 프라이빗 IP 대역(xxx.xx.0.0/16) 6443 포트 오픈 / 기타 방화벽 6443 포트 오픈 필요
+- <IP> : AWS 기준 private ip 로 설정
+- <TOKEN> : 3-0 에서 생성한 토큰 입력
+sudo kubeadm join <IP>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH>
+```
+### 1-3) CNI( Container Network Interface ) 설치 - Calico
+```text
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+```
+
+### 1-4) 노드 역할 분리 (보안 & 운영 핵심)
+```text
+0) 아래 명령어들은 Control Plane 에서 실행
+  - kubectl get nodes 명령어 실행 후 NAME 정보를 명령어 중 <control-node>, <worker-node>에 각각 적용.
+
+1) Control Plane에 Pod가 절대 올라가지 않도록 처리
+kubectl taint nodes <control-node> node-role.kubernetes.io/control-plane=:NoSchedule
+- 이미 적용된 경우 다음과 같은 에러 발생
+error: node ip-172-31-92-23 already has node-role.kubernetes.io/control-plane taint(s) with same effect(s) and --overwrite is false
+
+2) Worker 라벨
+kubectl label node <worker-node> role=worker
+
+3) edge-ingress: enable 설정
+kubectl label node <노드이름> edge-ingress=enabled
+```
 ## 2. 인프라 서버 ( DB / Redis / Kafka / RabbitMQ ) - ST : 추후 30GB
 ```text
 1) 인스턴스: t3.small
@@ -107,8 +138,6 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
    - 리소스 requests/limits로 통제
 ```
 
-
-
 ## 3. Application + Jenkins 서버 - ST : 추후 50GB
 ```text
 1) 인스턴스: t3.medium (또는 t3a.medium)
@@ -118,4 +147,25 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
    - 백엔드 / 프론트엔드
 3) 특징:
    - nodeSelector 또는 taint/toleration으로 인프라 전용화
+```
+
+## 4. k8s 구성
+### 1) 설정 파일 구성
+```text
+k8s/
+  edge/
+    ingress-nginx/
+      00-namespace.yaml
+      01-rbac.yaml
+      02-configmap.yaml
+      03-daemonset.yaml
+      04-service-internal.yaml
+      05-ingressclass.yaml
+      kustomization.yaml   # 설정 파일들 kustomize.yaml로 묶음
+```
+
+## 5. Ingress Controller 설정
+### 1) edge, ingress - nginx 적용
+```text
+kubectl apply -k k8s/edge/ingress-nginx
 ```

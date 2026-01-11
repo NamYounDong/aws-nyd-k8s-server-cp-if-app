@@ -1,0 +1,81 @@
+###
+# RBAC (Role-Based Access Control)
+# Ingress controller가 ingress/service/endpoints/secret 등을 감시
+###
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-nginx            # ingress-nginx Pod가 사용할 ServiceAccount
+  namespace: edge                # edge 네임스페이스에 생성
+                                 # → RBAC 권한은 이 SA 기준으로 적용됨
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-nginx            # ingress-nginx 전용 ClusterRole
+rules:
+  # -------------------------------
+  # Kubernetes 기본 리소스 조회 권한
+  # -------------------------------
+  - apiGroups: [""]              # core API group
+    resources:
+      - services                 # Service 조회 (라우팅 대상 확인)
+      - endpoints                # Endpoint 조회 (실제 Pod IP)
+      - pods                     # Pod 상태 확인
+      - nodes                    # Node 정보 조회 (externalTrafficPolicy: Local 등)
+      - secrets                  # TLS 인증서(secret) 접근
+      - configmaps               # nginx 설정(configmap) 접근
+    verbs:
+      - get
+      - list
+      - watch                    # 변경 감지를 위해 watch 필수
+
+  # -------------------------------
+  # Ingress 관련 리소스 조회 권한
+  # -------------------------------
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses                # Ingress 리소스 조회
+      - ingressclasses           # IngressClass 확인
+    verbs:
+      - get
+      - list
+      - watch
+
+  # -------------------------------
+  # Event 생성 권한
+  # -------------------------------
+  - apiGroups: [""]
+    resources:
+      - events                   # 이벤트 기록 (에러/상태 로그)
+    verbs:
+      - create
+      - patch
+
+  # -------------------------------
+  # Leader Election 권한
+  # (Ingress Controller 다중 Pod 환경 대비)
+  # -------------------------------
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases                   # 리더 선출용 Lease 객체
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-nginx            # ClusterRole ↔ ServiceAccount 바인딩 이름
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-nginx            # 위에서 정의한 ClusterRole 참조
+subjects:
+  - kind: ServiceAccount
+    name: ingress-nginx          # 권한을 부여할 ServiceAccount
+    namespace: edge              # 해당 ServiceAccount가 속한 네임스페이스

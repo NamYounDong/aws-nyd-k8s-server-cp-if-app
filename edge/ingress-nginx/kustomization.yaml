@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespace.yaml
+  - 01-rbac.yaml
+  - 02-configmap.yaml
+  - 03-daemonset.yaml
+  - 04-service-internal.yaml
+  - 05-ingressclass.yaml
+
+# (선택) 공통 라벨 붙여서 추적/관리 편하게
+commonLabels:
+  app.kubernetes.io/part-of: edge
+  app.kubernetes.io/managed-by: kustomize

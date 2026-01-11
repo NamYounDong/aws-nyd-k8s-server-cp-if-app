@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-controller     # ingress-nginx 컨트롤러 설정용 ConfigMap
+  namespace: edge                    # ingress-nginx가 배치된 네임스페이스
+data:
+  # X-Forwarded-For / X-Forwarded-Proto 헤더 신뢰 여부
+  # - LB / 프록시 뒤에서 실제 클라이언트 IP를 얻기 위해 필요
+  # - ingress + ALB / NodePort 환경에서 거의 필수
+  use-forwarded-headers: "true"
+
+  # nginx 응답 헤더에 버전 정보 노출 여부
+  # - false: Server 헤더에서 nginx 버전 숨김
+  # - 보안상 권장 설정
+  server-tokens: "false"
+
+  # 클라이언트 요청 body 최대 크기
+  # - 파일 업로드 제한 (예: 10MB)
+  # - 초과 시 413 Request Entity Too Large
+  proxy-body-size: "10m"
+
+  # upstream 서버 연결 시도 최대 대기 시간 (초)
+  # - backend Pod와 TCP 연결이 안 될 때의 timeout
+  proxy-connect-timeout: "15"
+
+  # upstream 서버로부터 응답을 읽는 최대 대기 시간 (초)
+  # - backend 처리 지연이 있을 경우 조정 필요
+  proxy-read-timeout: "60"
+
+  # upstream 서버로 요청을 전송할 때의 최대 대기 시간 (초)
+  # - 느린 네트워크 / 대용량 body 전송 시 영향
+  proxy-send-timeout: "60"

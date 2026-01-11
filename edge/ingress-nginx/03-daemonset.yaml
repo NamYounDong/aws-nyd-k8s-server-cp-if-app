@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ingress-nginx-controller     # ingress-nginx 컨트롤러 DaemonSet
+  namespace: edge                    # edge 네임스페이스에 배치
+  labels:
+    app: ingress-nginx               # ingress-nginx 식별 라벨
+spec:
+  # DaemonSet이 관리할 Pod 선택 기준
+  selector:
+    matchLabels:
+      app: ingress-nginx
+
+  template:
+    metadata:
+      labels:
+        app: ingress-nginx           # Service / NetworkPolicy / Selector와 매칭
+    spec:
+      serviceAccountName: ingress-nginx   # RBAC 권한이 부여된 ServiceAccount 사용
+
+      # --------------------------------------------------
+      # 🔑 핵심 설정
+      # --------------------------------------------------
+
+      # hostNetwork=true
+      # - Pod가 노드의 네트워크 네임스페이스를 직접 사용
+      # - 노드의 80/443 포트를 "바로" 수신 가능
+      # - NodePort / LoadBalancer 없이 도메인 80/443 직접 처리
+      hostNetwork: true
+
+      # hostNetwork 사용 시 필수
+      # - 클러스터 DNS(kube-dns/CoreDNS) 정상 사용 보장
+      dnsPolicy: ClusterFirstWithHostNet
+
+      # --------------------------------------------------
+      # 특정 워커 노드에만 Ingress 배치
+      # --------------------------------------------------
+
+      # 이 라벨을 가진 노드에만 ingress-nginx 배치
+      # 예:
+      #   kubectl label node <node> role=worker
+      #   kubectl label node <node> edge-ingress=enabled
+      nodeSelector:
+        role: worker-app
+        edge-ingress: enabled
+
+      # Pod 종료 시 트래픽 정리를 위한 유예 시간
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: controller
+          image: registry.k8s.io/ingress-nginx/controller:v1.9.6
+          imagePullPolicy: IfNotPresent
+
+          # --------------------------------------------------
+          # ingress-nginx 실행 옵션
+          # --------------------------------------------------
+          args:
+            - /nginx-ingress-controller
+            - --ingress-class=nginx                    # 처리할 IngressClass 이름
+            - --configmap=edge/ingress-nginx-controller # 설정 ConfigMap 참조
+            - --watch-ingress-without-class=false      # class 없는 ingress 무시
+            - --http-port=80                           # HTTP 수신 포트
+            - --https-port=443                         # HTTPS 수신 포트
+
+          # --------------------------------------------------
+          # 컨테이너 포트
+          # hostNetwork=true 이므로 노드 포트와 동일
+          # --------------------------------------------------
+          ports:
+            - name: http
+              containerPort: 80                        # HTTP
+            - name: https
+              containerPort: 443                       # HTTPS
+            - name: metrics
+              containerPort: 10254                     # 상태/메트릭/헬스체크
+
+          # --------------------------------------------------
+          # 헬스 체크
+          # --------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10254
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 10254
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          # --------------------------------------------------
+          # 리소스 요청/제한
+          # --------------------------------------------------
+          resources:
+            requests:
+              cpu: "100m"                              # 최소 CPU 보장
+              memory: "256Mi"                          # 최소 메모리 보장
+            limits:
+              cpu: "500m"                              # 최대 CPU 사용량
+              memory: "512Mi"                          # 최대 메모리 사용량
+
+          # --------------------------------------------------
+          # 보안 컨텍스트
+          # --------------------------------------------------
+          securityContext:
+            allowPrivilegeEscalation: false             # 권한 상승 금지
+            runAsNonRoot: true                          # root 사용자 금지
+            runAsUser: 101                              # 비root UID 사용
+            capabilities:
+              drop: ["ALL"]                             # 모든 Linux capability 제거
+              add: ["NET_BIND_SERVICE"]                 # 1024 이하 포트(80/443) 바인딩 허용
