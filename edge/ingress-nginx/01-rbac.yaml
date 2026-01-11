@@ -30,6 +30,11 @@ rules:
       - list
       - watch                    # 변경 감지를 위해 watch 필수
 
+  # ✅ EndpointSlice 조회 권한 (Ingress가 backend endpoint 추적에 사용)
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+
   # -------------------------------
   # Ingress 관련 리소스 조회 권한
   # -------------------------------
