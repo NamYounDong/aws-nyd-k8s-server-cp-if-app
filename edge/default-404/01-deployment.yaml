@@ -94,3 +94,11 @@ spec:
           configMap:
             # 앞에서 만든 default-404 ConfigMap 참조
             name: default-404
+
+        # ✅ readOnlyRootFilesystem 환경에서 필요한 writable 디렉터리들
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}

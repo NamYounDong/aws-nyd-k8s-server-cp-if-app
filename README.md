@@ -173,5 +173,5 @@ kubectl apply -k ./edge/ingress-nginx
 ## 6. Default 404 적용
 ### 1) default 404 페이지 적용
 ```text
-kubectl apply -k k8s/edge/default-404
+kubectl apply -k ./edge/default-404
 ```
