@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Deployment 이름
+  name: default-404
+
+  # Ingress Controller와 동일한 namespace
+  namespace: edge
+
+  labels:
+    # 리소스 식별용 라벨
+    app: default-404
+
+spec:
+  # 단일 Pod면 충분
+  # 트래픽 분산 대상이 아니고 항상 404만 반환
+  replicas: 1
+
+  selector:
+    matchLabels:
+      # 이 Deployment가 관리할 Pod 선택 기준
+      app: default-404
+
+  template:
+    metadata:
+      labels:
+        # Pod에 붙는 라벨
+        # Service / selector와 반드시 일치해야 함
+        app: default-404
+
+    spec:
+      # 노드 선택 조건
+      # role=worker-app 라벨이 붙은 노드에만 스케줄링
+      #
+      # ✔ 단일 워커 환경에서는 명시하는 게 운영상 직관적
+      # ✔ 멀티 워커 환경이면 제거하거나 affinity로 전환 가능
+      nodeSelector:
+        role: worker-app
+
+      containers:
+        - name: nginx
+
+          # 가볍고 보안 표면이 작은 alpine 이미지
+          # nginx 1.27은 최신 안정 라인
+          image: nginx:1.27-alpine
+
+          ports:
+            - name: http
+              # ConfigMap에서 listen 하도록 설정한 포트
+              containerPort: 8080
+
+          resources:
+            # 최소 리소스 요청
+            # → 항상 스케줄 가능 + 다른 Pod에 영향 없음
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+
+            # 리소스 상한
+            # → 무한정 CPU/메모리 점유 방지
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+
+          securityContext:
+            # setuid / sudo 등 권한 상승 금지
+            allowPrivilegeEscalation: false
+
+            # 루트 파일시스템을 읽기 전용으로 마운트
+            # → 웹쉘 / 파일 변조 차단
+            readOnlyRootFilesystem: true
+
+            # root 유저 실행 금지
+            runAsNonRoot: true
+
+            # alpine nginx 기본 non-root UID
+            runAsUser: 101
+
+            # Linux capability 전부 제거
+            # → 네트워크 / 파일 / 시스템 권한 차단
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: conf
+              # nginx 기본 vhost 위치
+              mountPath: /etc/nginx/conf.d/default.conf
+
+              # ConfigMap 전체가 아니라 특정 키만 파일로 마운트
+              subPath: nginx.conf
+
+      volumes:
+        - name: conf
+          configMap:
+            # 앞에서 만든 default-404 ConfigMap 참조
+            name: default-404

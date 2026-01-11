@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # ConfigMap 이름
+  # → default backend Deployment에서 volume으로 마운트됨
+  name: default-404
+
+  # Ingress Controller와 동일한 namespace
+  namespace: edge
+
+data:
+  # Nginx가 실제로 로드할 설정 파일 이름
+  nginx.conf: |
+    server {
+
+      # 컨테이너 내부에서 Nginx가 리슨할 포트
+      # → Service에서 이 포트로 트래픽 전달
+      listen 8080;
+
+      # Nginx 버전 정보 노출 방지 (보안)
+      server_tokens off;
+
+      # MIME 스니핑 방지
+      add_header X-Content-Type-Options nosniff always;
+
+      # iframe 삽입 차단 (Clickjacking 방지)
+      add_header X-Frame-Options DENY always;
+
+      # Referer 헤더 전송 차단 (프라이버시)
+      add_header Referrer-Policy no-referrer always;
+
+      # 헬스체크 엔드포인트
+      # → liveness / readiness probe 용
+      location /healthz {
+        return 200 "ok\n";
+      }
+
+      # 모든 기타 요청 처리
+      location / {
+
+        # 응답 MIME 타입 명시
+        default_type text/html;
+
+        # 항상 404 반환 + HTML 본문
+        return 404 '
+      <!doctype html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>404</title>
+
+        <!-- 기본적인 스타일 -->
+        <style>
+          body {
+            font-family: system-ui, -apple-system, Segoe UI,
+                         Roboto, Helvetica, Arial, sans-serif;
+            margin: 40px;
+            line-height: 1.5;
+          }
+          code {
+            background: #f2f2f2;
+            padding: 2px 6px;
+            border-radius: 6px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>404 - Not Found</h1>
+      </body>
+      </html>';
+      }
+    }

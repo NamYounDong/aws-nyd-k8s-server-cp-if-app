@@ -38,7 +38,7 @@ spec:
 
       # 이 라벨을 가진 노드에만 ingress-nginx 배치
       # 예:
-      #   kubectl label node <node> role=worker
+      #   kubectl label node <node> role=worker-app
       #   kubectl label node <node> edge-ingress=enabled
       nodeSelector:
         role: worker-app
