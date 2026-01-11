@@ -78,7 +78,21 @@ sudo apt-mark hold kubelet kubeadm kubectl
    - 필요 시 일부 시스템 파드만 허용
 
 ```
+### 1-1) Kubernetes 클러스터 생성 (Control Plane)
+```text
+1) CIDR(Pod IP 대역) 설정
+sudo kubeadm init \
+  --pod-network-cidr=192.168.0.0/16
 
+2) kubeconfig 설정
+mkdir -p $HOME/.kube
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+3) Worker 노드 Join ( Control Plane 과 Worker Node 연결 )
+- Control Plane에서 출력된 join 명령을 Worker 서버에서 그대로 실행
+
+```
 
 ## 2. 인프라 서버 ( DB / Redis / Kafka / RabbitMQ ) - ST : 추후 30GB
 ```text
