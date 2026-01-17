@@ -316,7 +316,7 @@ kubectl -n cert-manager get pods
 
 ### 2️⃣ Cloudflare API Token을 Kubernetes Secret으로 저장
 ```text
-1) export CF_API_TOKEN='Cloudflare_API_Token_전체문자열'
+1) export CF_API_TOKEN='여기에 토큰 문자열'
 
 2) kubectl create secret generic cloudflare-api-token \
   -n cert-manager \
