@@ -76,6 +76,7 @@ spec:
             - --watch-ingress-without-class=false      # class 없는 ingress 무시
             - --http-port=80                           # HTTP 수신 포트
             - --https-port=443                         # HTTPS 수신 포트
+            - --default-ssl-certificate=edge/wildcard-domain-nyd-uk-tls # 기본 SSL 인증서
 
           # --------------------------------------------------
           # 컨테이너 포트
