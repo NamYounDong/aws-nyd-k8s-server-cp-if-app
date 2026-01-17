@@ -175,3 +175,61 @@ kubectl apply -k ./edge/ingress-nginx
 ```text
 kubectl apply -k ./edge/default-404
 ```
+
+
+## 5. 와일드카드 SSL 적용
+### 0️⃣ 사전 준비
+```text
+0-1. Cloudflare API Token 생성
+Cloudflare 대시보드 → My Profile → API Tokens → Create Token
+권한
+Permissions
+Zone → DNS → Edit
+Zone Resources
+Include → Specific zone → domain-nyd.uk
+생성 후 API Token 값 복사 (한 번만 보여줌)
+
+0-2. DNS 레코드 상태
+A 레코드가 현재 워커 퍼블릭 IP를 가리키고 있어야 함
+Proxy(오렌지 구름) ❌ DNS only
+DNS 전파가 완벽하지 않아도 DNS-01은 Cloudflare API로 처리되므로 OK
+```
+### 1️⃣ cert-manager 설치
+```text
+1) cert-manager 네임스페이스 생성
+kubectl create namespace cert-manager
+
+2) CRD 설치
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.crds.yaml
+
+3) cert-manager 본체 설치
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
+
+4) 정상 기동 확인
+kubectl -n cert-manager get pods
+```
+
+### 2️⃣ Cloudflare API Token을 Kubernetes Secret으로 저장
+```text
+1) export CF_API_TOKEN='Cloudflare_API_Token_전체문자열'
+
+2) kubectl create secret generic cloudflare-api-token \
+  -n cert-manager \
+  --from-literal=api-token="${CF_API_TOKEN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+3) unset CF_API_TOKEN
+```
+
+### 3️⃣ ClusterIssuer 생성 (Let’s Encrypt + DNS-01)
+```text
+1) kubectl apply -f cloudflare-dns-cluster-issue.yaml
+2) kubectl get clusterissuer letsencrypt-prod-dns
+```
+
+### 4️⃣ 와일드카드 Certificate 생성
+```text
+1) kubectl -n edge get certificate
+2) kubectl -n edge describe certificate wildcard-domain-nyd-uk
+3) kubectl -n edge get secret wildcard-domain-nyd-uk-tls
+```
