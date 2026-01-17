@@ -1,7 +1,7 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: wildcard-dm-nyd-shop # 와일드카드 도메인 이름
+  name: wildcard-domain-nyd-uk # 와일드카드 도메인 이름
   namespace: edge # 네임스페이스 이름
 spec:
   secretName: wildcard-domain-nyd-uk-tls # 시크릿 이름

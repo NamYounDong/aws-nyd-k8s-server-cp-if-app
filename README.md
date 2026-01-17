@@ -334,7 +334,9 @@ kubectl -n cert-manager get pods
 
 ### 4️⃣ 와일드카드 Certificate 생성
 ```text
+0) kubectl apply -f certificate-wildcard-domain.yaml
 1) kubectl -n edge get certificate
 2) kubectl -n edge describe certificate wildcard-domain-nyd-uk
 3) kubectl -n edge get secret wildcard-domain-nyd-uk-tls
 ```
+
