@@ -46,6 +46,37 @@ containerd config default | sudo tee /etc/containerd/config.toml
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 sudo systemctl restart containerd
 sudo systemctl enable containerd
+
+오픈 포트
+> Note:
+> - 192.168.0.0/16 is the Pod CIDR used by Calico VXLAN overlay network.
+> - Traffic is encapsulated over UDP 4789 and never exposed outside the cluster.
+* Control Plane
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                  
+6443/tcp                   ALLOW       172.31.0.0/16             
+6443/tcp                   DENY        Anywhere                  
+10250/tcp                  ALLOW       172.31.0.0/16             
+4789/udp                   ALLOW       172.31.0.0/16             
+Anywhere                   ALLOW       192.168.0.0/16            
+22/tcp (v6)                ALLOW       Anywhere (v6)             
+6443/tcp (v6)              DENY        Anywhere (v6) 
+
+* Worker
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                  
+10250/tcp                  ALLOW       172.31.0.0/16             
+80/tcp                     ALLOW       Anywhere             http(진입 노드만)     
+443/tcp                    ALLOW       Anywhere             https(진입 노드만)     
+6443/tcp                   ALLOW       172.31.0.0/16             
+4789/udp                   ALLOW       172.31.0.0/16             
+Anywhere                   ALLOW       192.168.0.0/16            
+22/tcp (v6)                ALLOW       Anywhere (v6)             
+80/tcp (v6)                ALLOW       Anywhere (v6)             
+443/tcp (v6)               ALLOW       Anywhere (v6) 
+
 ```
 
 ### 4) 0-4. kubeadm / kubelet / kubectl 설치
@@ -62,7 +93,8 @@ sudo apt update
 sudo apt install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 ```
-
+5) 모든 서버간 10250 포트 인바운드 오픈 / 모든 서버간 All Traffic 아웃바운드 오픈 필요.
+  > 프라이빗 IP 대역에 한정하여 처리.
 
 ## 1. 쿠버네티스 (controll plane) 서버
 ```text
@@ -107,7 +139,80 @@ sudo kubeadm join <IP>:6443 \
 ### 1-3) CNI( Container Network Interface ) 설치 - Calico
 ```text
 kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+※ Calico VXLAN-only 전환(4789 포트 오픈) : BGP 는 “네트워크 통제력이 필요한 환경”에서 쓰는 것. 
+> BGP : “네트워크는 네가 책임져라”
+   - 네트워크 설계
+   - 라우팅
+   - 방화벽
+   - 장애 분석
+> VXLAN : “네트워크는 플랫폼이 처리할게”
+   - Kubernetes/CNI가 책임
+   - 운영자는 정책만 관리
+
+1) kubectl patch ippool default-ipv4-ippool \
+  --type=merge \
+  -p '{
+    "spec": {
+      "ipipMode": "Never",
+      "vxlanMode": "Always"
+    }
+  }'
+
+2) BGP 설정이 있으면 비활성화
+kubectl get bgpconfiguration -A  결과 있으면,
+kubectl patch bgpconfiguration default \
+  --type=merge \
+  -p '{"spec":{"logSeverityScreen":"Info","nodeToNodeMeshEnabled":false}}'
+
+2-1) BGP 설정이 강제되고 있는 경우
+kubectl -n kube-system patch cm calico-config --type=merge \
+  -p '{"data":{"calico_backend":"vxlan"}}'
+
+kubectl -n kube-system patch ds calico-node --type=merge -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "calico-node",
+            "env": [
+              { "name": "CLUSTER_TYPE", "value": "k8s" },
+              { "name": "CALICO_IPV4POOL_IPIP", "value": "Never" },
+              { "name": "CALICO_IPV4POOL_VXLAN", "value": "Always" }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}'
+
+
+kubectl -n kube-system patch ds calico-node --type='json' -p='[
+  {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/exec/command","value":["/bin/calico-node","-felix-live"]},
+  {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/exec/command","value":["/bin/calico-node","-felix-ready"]}
+]'
+
+
+3) Calico 컴포넌트 재시작 (필수)
+kubectl -n kube-system rollout restart ds/calico-node
+kubectl -n kube-system rollout restart deploy/calico-kube-controllers
+
+*) UFW 켠 뒤 Forwarding(라우팅/포워딩) 완전 설정
+- UFW 켜면 기본 정책 때문에 포워딩이 끊기는 케이스가 많음.
+- 지금 tcpdump에서 VXLAN 캡슐은 들어오는데 내부 SYN만 반복되는 건 “포워딩/필터링”이 중간에서 잡아먹는 전형적인 패턴.
+# 1) 커널 포워딩/브리지 netfilter 활성화 (README 0-2에 있는 핵심) :contentReference[oaicite:1]{index=1}
+sudo modprobe br_netfilter
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+
+# 2) UFW 기본 포워딩 정책을 ACCEPT로 (이걸 안 하면 계속 꼬일 수 있음)
+sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+sudo ufw reload
+
 ```
+
+
 
 ### 1-4) 노드 역할 분리 (보안 & 운영 핵심)
 ```text
