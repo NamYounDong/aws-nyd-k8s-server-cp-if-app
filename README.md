@@ -351,6 +351,35 @@ helm repo update
 
 helm upgrade --install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver \
   -n kube-system
+
+3) StorageClass(gp3) 생성
+kubectl apply -f k8s/storage/ebs/00-storageclass-gp3.yaml
+kubectl get storageclass
+
+- 정상 상태
+NAME            ebs-gp3
+PROVISIONER     ebs.csi.aws.com
+RECLAIMPOLICY   Delete
+VOLUMEBINDING   WaitForFirstConsumer
+ALLOWEXPANSION true
+
+1️⃣ PROVISIONER: ebs.csi.aws.com
+EBS CSI Driver가 담당 → 맞음
+in-tree EBS(kubernetes.io/aws-ebs) ❌ → 최신 방식 ✅
+2️⃣ VOLUMEBINDINGMODE: WaitForFirstConsumer ⭐⭐⭐
+의미 : Pod가 실제로 어느 노드에 뜰지 결정된 후 그 노드의 AZ에 맞춰 EBS를 생성
+EBS는 AZ 종속 리소스
+- 이 옵션 없으면:
+PVC 먼저 생성 → 랜덤 AZ에 EBS 생성
+Pod는 다른 AZ로 스케줄 → ❌ attach 실패
+👉 운영 환경에서는 사실상 필수 옵션
+3️⃣ RECLAIMPOLICY: Delete
+PVC 삭제 시 → EBS 볼륨도 삭제
+개인/개발 환경에서는 합리적
+운영 DB라면 Retain도 고려.
+4️⃣ ALLOWVOLUMEEXPANSION: true
+PVC 사이즈 늘리기 가능.
+DB/로그/Jenkins 모두에서 매우 유용.
 ```
 
 
