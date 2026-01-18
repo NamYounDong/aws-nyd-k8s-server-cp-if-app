@@ -414,13 +414,25 @@ k8s/
     jenkins/
       00-namespace.yaml
       01-serviceaccount.yaml
-      02-rbac-deploy-edge.yaml
-      02-rbac-deploy-app.yaml
-      02-rbac-deploy-infra.yaml     # (추후 infra 생길 때 적용)
+      02-rbac-edge.yaml
+      02-rbac-app.yaml     # app 시작할 때 enable
+      02-rbac-infra.yaml   # infra 시작할 때 enable
       03-networkpolicy.yaml
-      04-secret-basic-auth.yaml     # (옵션) Ingress BasicAuth
+      04-pvc.yaml
       05-deployment.yaml
       06-service.yaml
       07-ingress.yaml
-      kustomization.yaml
 ```
+### 1) Jenkins 세트 적용
+kubectl apply -k k8s/cicd/jenkins
+
+### 2) PVC 바인딩 확인
+kubectl -n cicd get pvc  
+kubectl -n cicd describe pvc jenkins-home
+
+### 3) Jenkins Pod 확인
+kubectl -n cicd get pod  
+kubectl -n cicd describe pod -l app=jenkins
+
+### 4) 초기 비번 확인
+kubectl -n cicd exec -it deploy/jenkins -- cat /var/jenkins_home/secrets/initialAdminPassword
