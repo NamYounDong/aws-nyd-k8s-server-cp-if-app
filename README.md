@@ -439,11 +439,12 @@ kubectl -n cicd exec -it deploy/jenkins -- cat /var/jenkins_home/secrets/initial
 
 ### 5) Jenkins Ingress BasicAuth(Jenkins 1차 인증)
 ```text
-1️⃣ htpasswd 생성 (1회성 작업, 로컬에서)
+* htpasswd 생성 (1회성 작업, 로컬에서)
 sudo apt-get install -y apache2-utils
 
 read -s -p "BasicAuth password: " PASS; echo
-htpasswd -nbB jenkins-admin "$PASS" > /tmp/jenkins-auth
+htpasswd -nbB <젠킨스 ID> "$PASS" > /tmp/jenkins-auth
+
 unset PASS
 
 
