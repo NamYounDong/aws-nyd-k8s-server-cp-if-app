@@ -340,3 +340,36 @@ kubectl -n cert-manager get pods
 3) kubectl -n edge get secret wildcard-domain-nyd-uk-tls
 ```
 
+
+## 6. EBS CSI Driver + StorageClass 설치 (PVC를 위한 기반)
+```text
+0) AWS EBS > IAM > ROLE 설정 먼저 처리(해당 노드에 처리안하면 크래시남)
+1) EBS CSI Driver 설치 (Helm 방식 권장)
+helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+
+helm repo update
+
+helm upgrade --install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver \
+  -n kube-system
+```
+
+
+## 7. JENKINS 세팅
+- jenkins를 통해 SCG, INFRA, APP 모두 배포할 수 있도록 처리.
+### 0) 디렉터리 구조
+```text
+k8s/
+  cicd/
+    jenkins/
+      00-namespace.yaml
+      01-serviceaccount.yaml
+      02-rbac-deploy-edge.yaml
+      02-rbac-deploy-app.yaml
+      02-rbac-deploy-infra.yaml     # (추후 infra 생길 때 적용)
+      03-networkpolicy.yaml
+      04-secret-basic-auth.yaml     # (옵션) Ingress BasicAuth
+      05-deployment.yaml
+      06-service.yaml
+      07-ingress.yaml
+      kustomization.yaml
+```

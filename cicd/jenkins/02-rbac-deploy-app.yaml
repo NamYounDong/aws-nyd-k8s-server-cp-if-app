@@ -1,0 +1,34 @@
+# SCG/Ingress 룰 등이 edge에 있을 경우
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer
+  namespace: edge
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments","statefulsets","daemonsets","replicasets"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: [""]
+    resources: ["services","configmaps"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses","ingressclasses","networkpolicies"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  # 이벤트/디버깅 편의(필요 최소)
+  - apiGroups: [""]
+    resources: ["events","pods"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer
+  namespace: edge
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer
