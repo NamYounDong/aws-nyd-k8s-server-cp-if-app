@@ -436,3 +436,20 @@ kubectl -n cicd describe pod -l app=jenkins
 
 ### 4) 초기 비번 확인
 kubectl -n cicd exec -it deploy/jenkins -- cat /var/jenkins_home/secrets/initialAdminPassword
+
+### 5) Jenkins Ingress BasicAuth(Jenkins 1차 인증)
+```text
+1️⃣ htpasswd 생성 (1회성 작업, 로컬에서)
+sudo apt-get install -y apache2-utils
+
+read -s -p "BasicAuth password: " PASS; echo
+htpasswd -nbB jenkins-admin "$PASS" > /tmp/jenkins-auth
+unset PASS
+
+
+kubectl -n cicd create secret generic jenkins-basic-auth \
+  --from-file=auth=/tmp/jenkins-auth \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+shred -u /tmp/jenkins-auth 2>/dev/null || rm -f /tmp/jenkins-auth
+```

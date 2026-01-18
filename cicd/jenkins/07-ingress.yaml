@@ -16,6 +16,10 @@ metadata:
     # 기본 타임아웃(보통 60s)이면 빌드 화면에서 끊기는 경우가 흔함
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"   # upstream(젠킨스) 응답 대기 시간
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"   # client로 응답 전송 대기 시간
+    # BasicAuth 설정
+    nginx.ingress.kubernetes.io/auth-type: "basic"
+    nginx.ingress.kubernetes.io/auth-secret: "jenkins-basic-auth"
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
 
 spec:
   # 어떤 Ingress Controller가 이 규칙을 처리할지 지정
