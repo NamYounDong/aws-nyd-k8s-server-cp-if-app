@@ -1,0 +1,93 @@
+# ===============================
+# 1️⃣ cicd 네임스페이스 기본 차단 정책
+# ===============================
+# → cicd 네임스페이스의 모든 Pod에 대해
+#    Ingress / Egress를 기본적으로 전부 차단
+# → 이후 "허용 정책"만 명시적으로 열어주는 방식 (Zero Trust)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+
+metadata:
+  # 기본 차단 정책 이름
+  name: cicd-default-deny
+
+  # 정책이 적용될 네임스페이스
+  namespace: cicd
+
+spec:
+  # podSelector: {} 
+  # → 네임스페이스 내 모든 Pod 대상
+  podSelector: {}
+
+  # 적용할 트래픽 방향
+  policyTypes:
+    - Ingress   # 외부 → cicd Pod 접근 차단
+    - Egress    # cicd Pod → 외부 접근 차단
+---
+# ===============================
+# 2️⃣ edge → Jenkins 접근 허용
+# ===============================
+# → 외부 트래픽은 edge(Ingress/SCG)만 통과
+# → edge 네임스페이스에서만 Jenkins UI 접근 허용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+
+metadata:
+  # Jenkins 접근 허용 정책 이름
+  name: allow-jenkins-from-edge
+
+  # Jenkins가 위치한 네임스페이스
+  namespace: cicd
+
+spec:
+  # Jenkins Pod만 선택
+  podSelector:
+    matchLabels:
+      app: jenkins
+
+  # Ingress 방향 트래픽만 제어
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        # 접근을 허용할 출발지 네임스페이스
+        - namespaceSelector:
+            matchLabels:
+              name: edge   # edge 네임스페이스에서만 접근 가능
+      ports:
+        # Jenkins UI/HTTP 포트
+        - protocol: TCP
+          port: 8080
+---
+# ===============================
+# 3️⃣ Jenkins 외부 통신 허용 (Egress)
+# ===============================
+# → Jenkins는 Git, 플러그인, 컨테이너 레지스트리 등
+#    외부 통신이 필수이므로 초기에는 전부 허용
+# → 운영 안정화 후 점진적으로 제한 가능
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+
+metadata:
+  # Jenkins outbound 통신 허용 정책
+  name: allow-jenkins-egress
+
+  # Jenkins가 위치한 네임스페이스
+  namespace: cicd
+
+spec:
+  # Jenkins Pod만 선택
+  podSelector:
+    matchLabels:
+      app: jenkins
+
+  # Egress 방향 트래픽만 제어
+  policyTypes:
+    - Egress
+
+  egress:
+    # - {} 는 "모든 목적지/포트 허용"을 의미
+    # → GitHub, Docker Registry, Plugin Update 등
+    #    초기 운영 편의성을 위한 설정
+    - {}

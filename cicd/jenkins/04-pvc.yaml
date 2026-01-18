@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-home
+  namespace: cicd
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: ebs-gp3
+  resources:
+    requests:
+      storage: 10Gi # 확장 가능(allowVolumeExpansion).

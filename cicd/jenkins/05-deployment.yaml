@@ -1,0 +1,112 @@
+# ===============================
+# Jenkins Deployment 정의
+# ===============================
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  # Deployment 이름
+  # → cicd 네임스페이스 내 Jenkins 워크로드 식별자
+  name: jenkins
+
+  # Jenkins가 배포될 네임스페이스
+  namespace: cicd
+
+spec:
+  # Jenkins는 상태를 가지므로 단일 replica 권장
+  # (수평 확장은 StatefulSet + 외부 스토리지 필요)
+  replicas: 1
+
+  # Deployment가 관리할 Pod 선택 기준
+  selector:
+    matchLabels:
+      app: jenkins
+
+  template:
+    metadata:
+      # Pod에 부여될 라벨
+      # → Service / NetworkPolicy / RBAC 대상 지정에 사용
+      labels:
+        app: jenkins
+
+    spec:
+      # Jenkins Pod가 사용할 ServiceAccount
+      # → RBAC으로 배포 권한을 제어하기 위한 핵심 설정
+      serviceAccountName: jenkins
+
+      # ===============================
+      # 노드 스케줄링 정책
+      # ===============================
+      # 단일 워커 또는 운영 단순화를 위해
+      # Jenkins를 worker 노드에 고정
+      nodeSelector:
+        role: worker-app
+
+      # ===============================
+      # Pod 단위 보안 컨텍스트
+      # ===============================
+      securityContext:
+        # 볼륨에 쓰여지는 파일의 그룹 소유자를 1000으로 설정
+        # → 컨테이너 내 jenkins 유저와 볼륨 권한 충돌 방지
+        fsGroup: 1000
+
+      containers:
+        - name: jenkins
+          # Jenkins LTS + JDK 17 이미지
+          # → 장기 지원 + 최신 Java 런타임
+          image: jenkins/jenkins:lts-jdk17
+
+          # ===============================
+          # Jenkins 서비스 포트
+          # ===============================
+          ports:
+            - name: http
+              # Jenkins Web UI 및 API 포트
+              containerPort: 8080
+
+          # ===============================
+          # 리소스 요청/제한
+          # ===============================
+          resources:
+            requests:
+              # 최소 보장 CPU
+              cpu: "300m"
+
+              # 최소 보장 메모리
+              memory: "1Gi"
+            limits:
+              # Jenkins 빌드 시 최대 사용 CPU
+              cpu: "1500m"
+
+              # Jenkins JVM/빌드 최대 메모리
+              memory: "3Gi"
+
+          # ===============================
+          # 컨테이너 보안 컨텍스트
+          # ===============================
+          securityContext:
+            # setuid, sudo 등 권한 상승 차단
+            allowPrivilegeEscalation: false
+
+            # root 사용자 실행 방지
+            runAsUser: 1000
+            runAsGroup: 1000
+
+          # ===============================
+          # Jenkins 데이터 영속화
+          # ===============================
+          volumeMounts:
+            - name: jenkins-home
+              # Jenkins 홈 디렉터리
+              # → job, plugin, credential, workspace 저장
+              mountPath: /var/jenkins_home
+
+      # ===============================
+      # 볼륨 정의
+      # ===============================
+      volumes:
+        - name: jenkins-home
+          persistentVolumeClaim:
+            # Jenkins 전용 PVC
+            # → EBS 기반 영속 스토리지
+            claimName: jenkins-home

@@ -383,6 +383,28 @@ DB/로그/Jenkins 모두에서 매우 유용.
 ```
 
 
+## 6-1. TLS(SSL) 복제(차후 namespace 생성할때 필요하다면 계속 처리해줘야됨.)
+- 상호간 접근 규제 때문에 edge에 있는 secret 값을 가져올 수 없으므로 필요하면 복제해서 가져와야됨.
+```text
+
+0) jq 없으면 설치:
+sudo apt-get update && sudo apt-get install -y jq
+1) cicd namespace 사전 생성
+kubectl create ns cicd --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl label ns cicd name=cicd --overwrite
+
+2) edge → cicd TLS Secret “복제”
+kubectl -n edge get secret wildcard-domain-nyd-uk-tls -o json \
+| jq 'del(.metadata.uid,.metadata.resourceVersion,.metadata.creationTimestamp,.metadata.managedFields)
+      | .metadata.namespace="cicd"' \
+| kubectl apply -f -
+
+3) 복제 확인
+kubectl -n cicd get secret wildcard-domain-nyd-uk-tls -o wide
+```
+
+
 ## 7. JENKINS 세팅
 - jenkins를 통해 SCG, INFRA, APP 모두 배포할 수 있도록 처리.
 ### 0) 디렉터리 구조

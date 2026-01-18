@@ -1,0 +1,51 @@
+# ===============================
+# Jenkins 외부 접근용 Ingress
+# ===============================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  # Ingress 리소스 이름
+  name: jenkins
+
+  # Jenkins가 존재하는 네임스페이스
+  namespace: cicd
+
+  annotations:
+    # Jenkins는 빌드 로그 스트리밍 / 웹소켓 / 오래 걸리는 요청이 많음
+    # 기본 타임아웃(보통 60s)이면 빌드 화면에서 끊기는 경우가 흔함
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"   # upstream(젠킨스) 응답 대기 시간
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"   # client로 응답 전송 대기 시간
+
+spec:
+  # 어떤 Ingress Controller가 이 규칙을 처리할지 지정
+  # → ingress-nginx를 쓰는 경우 보통 "nginx"
+  ingressClassName: nginx
+
+  # ===============================
+  # TLS(HTTPS) 설정
+  # ===============================
+  tls:
+    - hosts:
+        # 이 호스트로 접근 시 HTTPS 인증서 적용 대상
+        - jenkins.domain-nyd.uk
+
+      # cicd 네임스페이스에 존재하는 TLS Secret 이름
+      # → type: kubernetes.io/tls 인 Secret
+      # → wildcard 인증서라면 보통 *.domain-nyd.uk 커버
+      secretName: <cicd_네임스페이스의_와일드카드_TLS_Secret_이름>
+
+  # ===============================
+  # 라우팅 룰 (Host 기반)
+  # ===============================
+  rules:
+    - host: jenkins.domain-nyd.uk         # Host 헤더가 이 값이면 아래 규칙 적용
+      http:
+        paths:
+          - path: /                       # 모든 경로(/...)를 처리
+            pathType: Prefix              # Prefix 매칭(/로 시작하면 모두)
+            backend:
+              service:
+                name: jenkins             # 트래픽을 보낼 K8s Service 이름
+                port:
+                  number: 80              # Service 포트(보통 Service가 80 → targetPort 8080)

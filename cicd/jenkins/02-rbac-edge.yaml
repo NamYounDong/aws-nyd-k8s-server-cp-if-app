@@ -1,0 +1,104 @@
+# Kubernetes RBAC API 버전
+apiVersion: rbac.authorization.k8s.io/v1
+
+# 이 리소스의 타입: Role (네임스페이스 범위 권한)
+kind: Role
+
+metadata:
+  # Role 이름
+  # → Jenkins가 edge 네임스페이스에 배포할 때 사용할 권한 묶음
+  name: jenkins-deployer
+
+  # 이 Role이 적용되는 네임스페이스
+  # → Jenkins는 edge 네임스페이스에만 배포 가능
+  namespace: edge
+
+# Jenkins에게 허용할 권한 규칙들
+rules:
+  # ===============================
+  # 1️⃣ Deployment 계열 리소스 제어
+  # ===============================
+  - apiGroups: ["apps"]          # apps API 그룹 (Deployment, StatefulSet 등)
+    resources:
+      - deployments              # 일반 애플리케이션 배포
+      - statefulsets             # DB, Jenkins, Redis 등 상태 저장 워크로드
+      - daemonsets               # 노드당 1개씩 떠야 하는 워크로드
+      - replicasets              # Deployment 하위 리소스
+    verbs:
+      - get                      # 리소스 조회
+      - list                     # 목록 조회
+      - watch                    # 변경 감시 (kubectl rollout 등)
+      - create                   # 생성
+      - update                   # 전체 수정
+      - patch                    # 부분 수정 (helm upgrade 시 중요)
+      - delete                   # 삭제
+
+  # ===============================
+  # 2️⃣ Service / ConfigMap 제어
+  # ===============================
+  - apiGroups: [""]              # core API 그룹
+    resources:
+      - services                 # ClusterIP / NodePort / LoadBalancer
+      - configmaps               # 환경 설정 파일 (비밀 제외)
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  # ===============================
+  # 3️⃣ Ingress / NetworkPolicy
+  # ===============================
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses                # 외부 트래픽 진입점 (NGINX Ingress)
+      - networkpolicies          # Pod 간 네트워크 접근 제어
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  # ===============================
+  # 4️⃣ 디버깅/상태 확인 전용
+  # ===============================
+  - apiGroups: [""]              # core API 그룹
+    resources:
+      - pods                     # Pod 상태 조회
+      - events                   # 에러/경고 이벤트 확인
+    verbs:
+      - get
+      - list
+      - watch                    # ⚠️ create/delete 없음 (읽기 전용)
+---
+# ===============================
+# RoleBinding: Role ↔ ServiceAccount 연결
+# ===============================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+
+metadata:
+  # RoleBinding 이름
+  name: jenkins-deployer
+
+  # Role이 적용되는 네임스페이스
+  # → edge 네임스페이스에서만 유효
+  namespace: edge
+
+subjects:
+  # 이 권한을 부여받을 대상
+  - kind: ServiceAccount         # 대상 타입: ServiceAccount
+    name: jenkins                # Jenkins가 사용하는 SA 이름
+    namespace: cicd              # Jenkins가 실행 중인 네임스페이스
+
+roleRef:
+  # 참조할 권한 타입
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role                     # ClusterRole 아님 → namespace 한정
+  name: jenkins-deployer         # 위에서 정의한 Role 이름
