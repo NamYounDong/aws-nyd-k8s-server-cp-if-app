@@ -1,174 +1,124 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  # Deployment 리소스 이름
-  name: redis
-  # 인프라 전용 네임스페이스에 배치
-  namespace: infra
+containers:
+  - name: redis
+    # Redis 7.4 Alpine 기반 이미지 (경량, 빠른 기동)
+    image: redis:7.4-alpine
 
-spec:
-  # 단일 인스턴스(HA는 Sentinel/Cluster로 별도 구성)
-  replicas: 1
+    # 노드에 이미지가 있으면 재다운로드하지 않음
+    imagePullPolicy: IfNotPresent
 
-  # Deployment가 관리할 Pod를 식별하는 라벨 셀렉터
-  selector:
-    matchLabels:
-      app: redis
+    ports:
+      # Redis 서비스 포트
+      # Service targetPort에서 이름으로도 참조 가능
+      - name: redis
+        containerPort: 6379
 
-  template:
-    metadata:
-      # Pod에 부여될 라벨 (Service/모니터링/정책 기준)
-      labels:
-        app: redis
+    # ===============================
+    # 실행 명령 (패스워드 적용)
+    # ===============================
 
-    spec:
-      # ===============================
-      # 스케줄링 정책: infra 노드에만 배치
-      # ===============================
+    # sh -lc 를 사용하는 이유:
+    # - $REDIS_PASSWORD 같은 환경변수 확장을 쉘에서 처리하기 위함
+    # - exec를 사용해 PID 1로 redis-server를 실행(시그널 정상 처리)
+    command: ["sh","-lc"]
 
-      # role=infra 라벨이 붙은 노드에만 스케줄링
-      # (노드에 미리: kubectl label node <node> role=infra)
-      nodeSelector:
-        role: infra
+    args:
+      # redis-server를 설정 파일 기반으로 실행하면서
+      # Secret에서 주입된 패스워드를 --requirepass 옵션으로 적용
+      - >
+        exec redis-server /usr/local/etc/redis/redis.conf
+        --requirepass "$REDIS_PASSWORD"
 
-      # dedicated=infra:NoSchedule 테인트가 걸린 노드에 배치될 수 있도록 허용
-      # (노드에 미리: kubectl taint node <node> dedicated=infra:NoSchedule)
-      tolerations:
-        - key: "dedicated"
-          operator: "Equal"
-          value: "infra"
-          effect: "NoSchedule"
+    # ===============================
+    # 환경변수 주입 (Secret)
+    # ===============================
 
-      # ===============================
-      # Pod 레벨 보안/권한: 볼륨 권한 처리
-      # ===============================
+    # redis-auth Secret에 정의된 모든 key/value를 환경변수로 주입
+    # 예: REDIS_PASSWORD=<value>
+    envFrom:
+      - secretRef:
+          name: redis-auth
 
-      securityContext:
-        # PVC(/data) 마운트 디렉터리의 그룹 소유권을 fsGroup으로 맞춰줌
-        # → 컨테이너가 non-root(UID 999)로 실행되어도 /data에 쓰기 가능
-        # (EBS/PV는 기본 소유권이 root로 잡히는 경우가 많음)
-        fsGroup: 999
+    # ===============================
+    # 리소스 관리 (QoS/안정성)
+    # ===============================
 
-      containers:
-        - name: redis
+    resources:
+      # 최소 보장 리소스
+      # → 노드 부하 상황에서도 Redis 생존 보장
+      requests:
+        cpu: "50m"
+        memory: "256Mi"
 
-          # Redis 7.4 + alpine (경량, 빠른 기동)
-          image: redis:7.4-alpine
+      # 최대 사용 제한
+      # → 폭주 시 노드 전체 장애 방지
+      limits:
+        cpu: "300m"
+        memory: "512Mi"
 
-          # 이미 로컬에 있으면 pull 생략(노드 캐시 활용)
-          imagePullPolicy: IfNotPresent
+    # ===============================
+    # 헬스체크 (인증 포함)
+    # ===============================
 
-          ports:
-            # 포트에 이름을 붙이면 Service targetPort에서 이름 참조 가능
-            - name: redis
-              containerPort: 6379
+    # livenessProbe:
+    # - 컨테이너가 "살아있는지" 확인
+    # - 인증을 포함하지 않으면 NOAUTH 에러로 오탐지될 수 있음
+    livenessProbe:
+      exec:
+        # redis-cli에 -a 옵션으로 패스워드 전달
+        # PONG 응답이면 정상
+        command: ["sh","-lc","redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+      # 초기 기동/데이터 로드 시간 고려
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 3
+      # 연속 실패 6회 시 재시작
+      failureThreshold: 6
 
-          # ===============================
-          # 실행 방식: redis.conf를 명시하여 실행
-          # ===============================
+    # readinessProbe:
+    # - 트래픽을 받아도 되는 상태인지 확인
+    # - 실패 시 Service 엔드포인트에서 제외
+    readinessProbe:
+      exec:
+        command: ["sh","-lc","redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      # 연속 실패 3회 시 준비 안됨 처리
+      failureThreshold: 3
 
-          args:
-            - "redis-server"
-            # ConfigMap으로 마운트한 설정 파일 경로
-            - "/usr/local/etc/redis/redis.conf"
+    # ===============================
+    # 컨테이너 보안 하드닝
+    # ===============================
 
-          # ===============================
-          # 리소스 관리(QoS/안정성)
-          # ===============================
+    securityContext:
+      # 컨테이너 내 권한 상승 금지
+      allowPrivilegeEscalation: false
 
-          resources:
-            # 최소 보장 리소스 (노드 혼잡 시에도 Redis 생존 보장)
-            requests:
-              cpu: "50m"
-              memory: "256Mi"
-            # 최대 사용 제한 (폭주로 노드 장애 유발 방지)
-            limits:
-              cpu: "300m"
-              memory: "512Mi"
+      # root 사용자로 실행 금지
+      runAsNonRoot: true
 
-          # ===============================
-          # 운영 안정성: 헬스체크
-          # ===============================
+      # Redis 프로세스를 특정 UID/GID로 실행
+      # (fsGroup과 조합하여 PVC 쓰기 권한 확보)
+      runAsUser: 999
+      runAsGroup: 999
 
-          # livenessProbe:
-          # - "살아있나?" 확인
-          # - 실패가 지속되면 kubelet이 컨테이너를 재시작
-          livenessProbe:
-            exec:
-              # redis-cli ping이 PONG이면 정상
-              # sh -lc를 쓰는 이유: 파이프/grep 같은 셸 기능 사용
-              command: ["sh","-lc","redis-cli ping | grep -q PONG"]
-            # 기동 후 초기화 시간을 고려해 최초 체크 지연
-            initialDelaySeconds: 15
-            # 10초마다 체크
-            periodSeconds: 10
-            # 각 체크의 타임아웃
-            timeoutSeconds: 3
-            # 연속 실패 허용 횟수(실패 6번이면 재시작)
-            failureThreshold: 6
+      # 모든 Linux capability 제거 (최소 권한 원칙)
+      capabilities:
+        drop: ["ALL"]
 
-          # readinessProbe:
-          # - "트래픽 받을 준비 됐나?" 확인
-          # - 실패 시 Service 엔드포인트에서 제외(요청 안 보냄)
-          readinessProbe:
-            exec:
-              command: ["sh","-lc","redis-cli ping | grep -q PONG"]
-            # 상대적으로 빠르게 준비상태 체크 시작
-            initialDelaySeconds: 5
-            # 5초마다 체크
-            periodSeconds: 5
-            timeoutSeconds: 3
-            # 연속 실패 3번이면 준비 안됨 처리
-            failureThreshold: 3
+    # ===============================
+    # 볼륨 마운트
+    # ===============================
 
-          # ===============================
-          # 컨테이너 보안 하드닝 (권한 최소화)
-          # ===============================
+    volumeMounts:
+      # ConfigMap의 redis.conf를 컨테이너 설정 파일로 마운트
+      # subPath 사용으로 디렉터리 전체가 아닌 단일 파일만 덮어씀
+      - name: redis-config
+        mountPath: /usr/local/etc/redis/redis.conf
+        subPath: redis.conf
+        readOnly: true
 
-          securityContext:
-            # 권한 상승 금지 (setuid, sudo 등 방지)
-            allowPrivilegeEscalation: false
-
-            # root 사용자로 실행 금지
-            runAsNonRoot: true
-
-            # redis 프로세스를 UID/GID 999로 실행
-            # (이미지 내부 사용자와 맞추거나, 운영 표준 UID로 통일)
-            runAsUser: 999
-            runAsGroup: 999
-
-            # Linux capability 전부 제거 (불필요 권한 차단)
-            capabilities:
-              drop: ["ALL"]
-
-          # ===============================
-          # 볼륨 마운트
-          # ===============================
-
-          volumeMounts:
-            # ConfigMap의 redis.conf를 컨테이너 경로에 파일로 마운트
-            # subPath를 쓰면 "디렉터리"가 아니라 "파일 하나"만 정확히 덮어씀
-            - name: redis-config
-              mountPath: /usr/local/etc/redis/redis.conf
-              subPath: redis.conf
-              readOnly: true
-
-            # Redis 데이터 디렉터리(/data)를 PVC에 연결
-            # AOF/RDB 파일이 여기에 저장됨(영속성)
-            - name: redis-data
-              mountPath: /data
-
-      # ===============================
-      # 볼륨 정의
-      # ===============================
-
-      volumes:
-        # redis 설정 파일 제공(ConfigMap)
-        - name: redis-config
-          configMap:
-            name: redis-config
-
-        # 데이터 영속화를 위한 PVC
-        - name: redis-data
-          persistentVolumeClaim:
-            claimName: redis-data
+      # Redis 데이터 디렉터리
+      # AOF / RDB 파일이 PVC에 영속 저장됨
+      - name: redis-data
+        mountPath: /data

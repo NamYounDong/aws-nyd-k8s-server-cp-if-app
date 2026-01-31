@@ -297,14 +297,13 @@ k8s/
       05-networkpolicy.yaml        # (선택) app/scg 준비되면 켜기
       kustomization.yaml
 
+kubectl apply -k infra/redis
+kubectl -n infra get pods,svc,pvc
 
 kubectl -n infra create secret generic redis-auth \
   --from-literal=REDIS_PASSWORD='여기에강력한비번' \
   --dry-run=client -o yaml | kubectl apply -f -
-
-
-kubectl apply -k infra/redis
-kubectl -n infra get pods,svc,pvc
+  
 ```
 
 
