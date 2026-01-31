@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  # infra 네임스페이스 기본 차단 정책(디폴트 deny)
+  # → 이걸 적용하는 순간, infra 네임스페이스의 모든 Pod는
+  #   "명시적으로 허용된 통신"만 가능해짐
+  name: infra-default-deny
+  namespace: infra
+spec:
+  # 빈 셀렉터 = infra 네임스페이스의 "모든 Pod" 대상
+  podSelector: {}
+
+  # Ingress + Egress 둘 다 정책 적용
+  # → Ingress: 외부(다른 Pod/NS)에서 들어오는 트래픽 차단/허용
+  # → Egress : Pod가 밖으로 나가는 트래픽 차단/허용 (DNS 포함)
+  policyTypes: ["Ingress","Egress"]
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  # redis Pod로 들어오는 인바운드만 "특정 조건"으로 허용
+  name: allow-redis-from-app
+  namespace: infra
+spec:
+  # app=redis 라벨이 있는 Pod(즉 Redis Pod)만 정책 대상
+  podSelector:
+    matchLabels:
+      app: redis
+
+  # Ingress만 제어(= 들어오는 트래픽만 예외 허용)
+  policyTypes: ["Ingress"]
+
+  ingress:
+    - from:
+        # 특정 네임스페이스에서 오는 트래픽만 허용
+        # 주의: namespaceSelector는 "네임스페이스 라벨"을 본다
+        # → app 네임스페이스에 name=app 라벨이 실제로 붙어 있어야 매칭됨
+        - namespaceSelector:
+            matchLabels:
+              name: app
+
+      # Redis 포트만 허용
+      ports:
+        - protocol: TCP
+          port: 6379

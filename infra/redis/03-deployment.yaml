@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Deployment 리소스 이름
+  name: redis
+  # 인프라 전용 네임스페이스에 배치
+  namespace: infra
+
+spec:
+  # 단일 인스턴스(HA는 Sentinel/Cluster로 별도 구성)
+  replicas: 1
+
+  # Deployment가 관리할 Pod를 식별하는 라벨 셀렉터
+  selector:
+    matchLabels:
+      app: redis
+
+  template:
+    metadata:
+      # Pod에 부여될 라벨 (Service/모니터링/정책 기준)
+      labels:
+        app: redis
+
+    spec:
+      # ===============================
+      # 스케줄링 정책: infra 노드에만 배치
+      # ===============================
+
+      # role=infra 라벨이 붙은 노드에만 스케줄링
+      # (노드에 미리: kubectl label node <node> role=infra)
+      nodeSelector:
+        role: infra
+
+      # dedicated=infra:NoSchedule 테인트가 걸린 노드에 배치될 수 있도록 허용
+      # (노드에 미리: kubectl taint node <node> dedicated=infra:NoSchedule)
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "infra"
+          effect: "NoSchedule"
+
+      # ===============================
+      # Pod 레벨 보안/권한: 볼륨 권한 처리
+      # ===============================
+
+      securityContext:
+        # PVC(/data) 마운트 디렉터리의 그룹 소유권을 fsGroup으로 맞춰줌
+        # → 컨테이너가 non-root(UID 999)로 실행되어도 /data에 쓰기 가능
+        # (EBS/PV는 기본 소유권이 root로 잡히는 경우가 많음)
+        fsGroup: 999
+
+      containers:
+        - name: redis
+
+          # Redis 7.4 + alpine (경량, 빠른 기동)
+          image: redis:7.4-alpine
+
+          # 이미 로컬에 있으면 pull 생략(노드 캐시 활용)
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            # 포트에 이름을 붙이면 Service targetPort에서 이름 참조 가능
+            - name: redis
+              containerPort: 6379
+
+          # ===============================
+          # 실행 방식: redis.conf를 명시하여 실행
+          # ===============================
+
+          args:
+            - "redis-server"
+            # ConfigMap으로 마운트한 설정 파일 경로
+            - "/usr/local/etc/redis/redis.conf"
+
+          # ===============================
+          # 리소스 관리(QoS/안정성)
+          # ===============================
+
+          resources:
+            # 최소 보장 리소스 (노드 혼잡 시에도 Redis 생존 보장)
+            requests:
+              cpu: "50m"
+              memory: "256Mi"
+            # 최대 사용 제한 (폭주로 노드 장애 유발 방지)
+            limits:
+              cpu: "300m"
+              memory: "512Mi"
+
+          # ===============================
+          # 운영 안정성: 헬스체크
+          # ===============================
+
+          # livenessProbe:
+          # - "살아있나?" 확인
+          # - 실패가 지속되면 kubelet이 컨테이너를 재시작
+          livenessProbe:
+            exec:
+              # redis-cli ping이 PONG이면 정상
+              # sh -lc를 쓰는 이유: 파이프/grep 같은 셸 기능 사용
+              command: ["sh","-lc","redis-cli ping | grep -q PONG"]
+            # 기동 후 초기화 시간을 고려해 최초 체크 지연
+            initialDelaySeconds: 15
+            # 10초마다 체크
+            periodSeconds: 10
+            # 각 체크의 타임아웃
+            timeoutSeconds: 3
+            # 연속 실패 허용 횟수(실패 6번이면 재시작)
+            failureThreshold: 6
+
+          # readinessProbe:
+          # - "트래픽 받을 준비 됐나?" 확인
+          # - 실패 시 Service 엔드포인트에서 제외(요청 안 보냄)
+          readinessProbe:
+            exec:
+              command: ["sh","-lc","redis-cli ping | grep -q PONG"]
+            # 상대적으로 빠르게 준비상태 체크 시작
+            initialDelaySeconds: 5
+            # 5초마다 체크
+            periodSeconds: 5
+            timeoutSeconds: 3
+            # 연속 실패 3번이면 준비 안됨 처리
+            failureThreshold: 3
+
+          # ===============================
+          # 컨테이너 보안 하드닝 (권한 최소화)
+          # ===============================
+
+          securityContext:
+            # 권한 상승 금지 (setuid, sudo 등 방지)
+            allowPrivilegeEscalation: false
+
+            # root 사용자로 실행 금지
+            runAsNonRoot: true
+
+            # redis 프로세스를 UID/GID 999로 실행
+            # (이미지 내부 사용자와 맞추거나, 운영 표준 UID로 통일)
+            runAsUser: 999
+            runAsGroup: 999
+
+            # Linux capability 전부 제거 (불필요 권한 차단)
+            capabilities:
+              drop: ["ALL"]
+
+          # ===============================
+          # 볼륨 마운트
+          # ===============================
+
+          volumeMounts:
+            # ConfigMap의 redis.conf를 컨테이너 경로에 파일로 마운트
+            # subPath를 쓰면 "디렉터리"가 아니라 "파일 하나"만 정확히 덮어씀
+            - name: redis-config
+              mountPath: /usr/local/etc/redis/redis.conf
+              subPath: redis.conf
+              readOnly: true
+
+            # Redis 데이터 디렉터리(/data)를 PVC에 연결
+            # AOF/RDB 파일이 여기에 저장됨(영속성)
+            - name: redis-data
+              mountPath: /data
+
+      # ===============================
+      # 볼륨 정의
+      # ===============================
+
+      volumes:
+        # redis 설정 파일 제공(ConfigMap)
+        - name: redis-config
+          configMap:
+            name: redis-config
+
+        # 데이터 영속화를 위한 PVC
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data

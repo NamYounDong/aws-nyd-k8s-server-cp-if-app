@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: infra
+data:
+  redis.conf: |
+    ########################################
+    # Network / Security baseline
+    ########################################
+
+    # 모든 인터페이스에서 바인딩
+    # → Pod 내부에서는 0.0.0.0 사용이 일반적
+    # → 외부 노출 제어는 Kubernetes Service / Security Group에서 수행
+    bind 0.0.0.0
+
+    # 보호 모드 활성화
+    # 인증/바인딩이 올바르지 않으면 외부 접근 차단
+    protected-mode yes
+
+    # Redis 기본 포트
+    port 6379
+
+    # 외부 노출은 Service(ClusterIP)로만,
+    # 보안그룹에서 6379 외부 오픈 금지 전제
+    tcp-backlog 511          # 동시 연결 대기 큐
+    timeout 0                # 유휴 연결 강제 종료 없음
+    tcp-keepalive 300        # 죽은 커넥션 감지(초)
+
+    # (중요) Dangerous commands hardening
+    # 운영 중 실수 또는 공격으로 인한 데이터 유실 방지
+    # → 필요 시 명령어 이름을 바꿔서 부분 허용 가능
+    rename-command FLUSHALL ""
+    rename-command FLUSHDB  ""
+    rename-command KEYS     ""
+    rename-command CONFIG   ""
+    rename-command SHUTDOWN ""
+    rename-command DEBUG    ""
+
+    ########################################
+    # General
+    ########################################
+
+    # 컨테이너 환경이므로 백그라운드 데몬 금지
+    daemonize no
+
+    # systemd/supervisor 미사용
+    supervised no
+
+    # 기본 데이터베이스 개수
+    databases 16
+
+    ########################################
+    # Logging / Observability
+    ########################################
+
+    # 운영 환경 권장 로그 레벨
+    loglevel notice
+
+    # 파일 로그 미사용
+    # → stdout 로깅으로 Kubernetes 로그 수집 체계 사용
+    logfile ""
+
+    # Redis ASCII 로고 비활성화 (로그 노이즈 제거)
+    always-show-logo no
+
+    # Slowlog: 성능 병목 추적
+    # 10ms 이상 소요된 명령 기록
+    slowlog-log-slower-than 10000
+    slowlog-max-len 256
+
+    # Latency monitor
+    # 100ms 이상 지연 이벤트 기록
+    latency-monitor-threshold 100
+
+    ########################################
+    # Memory management
+    ########################################
+
+    # 컨테이너 메모리 limit보다 낮게 설정 필수
+    # (OOMKill 방지)
+    # 예: Pod limit 512Mi → Redis maxmemory 384mb
+    maxmemory 384mb
+
+    # 모든 키 대상 LRU 정책
+    # 캐시/세션/락 관리용으로 가장 무난
+    maxmemory-policy allkeys-lru
+
+    # 메모리 단편화 자동 완화
+    # → 장시간 운영 시 RSS 증가 방지
+    activedefrag yes
+    active-defrag-threshold-lower 10
+    active-defrag-threshold-upper 100
+    active-defrag-cycle-min 5
+    active-defrag-cycle-max 50
+
+    ########################################
+    # Persistence (AOF 권장)
+    ########################################
+
+    # 데이터 저장 디렉터리
+    # → PVC 마운트 경로와 일치해야 함
+    dir /data
+
+    # Append Only File 활성화
+    appendonly yes
+    appendfilename "appendonly.aof"
+
+    # fsync 정책
+    # everysec = 성능/안정성 균형
+    appendfsync everysec
+
+    # AOF rewrite 중 fsync 생략
+    # → 디스크 IO 스파이크 완화
+    no-appendfsync-on-rewrite yes
+
+    # RDB 스냅샷 보조 유지
+    # (장애 복구 시 유용, 필요 없으면 제거 가능)
+    save 900 1
+    save 300 10
+    save 60 10000
+
+    # AOF 자동 재작성 조건
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+
+    # AOF 파일 일부 손상 시에도 로드 허용
+    aof-load-truncated yes
+
+    ########################################
+    # Performance / client limits
+    ########################################
+
+    # 최대 클라이언트 수 제한
+    # → 무한 커넥션으로 인한 자원 고갈 방지
+    maxclients 2000
+
+    # 클라이언트 출력 버퍼 제한
+    # Pub/Sub 폭주, Replica 지연 방지
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit pubsub 32mb 8mb 60
+    client-output-buffer-limit replica 256mb 64mb 60
+
+    ########################################
+    # Replication (현재 단일 인스턴스)
+    ########################################
+
+    # 복제 지연 최소화 설정
+    repl-disable-tcp-nodelay no
+    repl-backlog-size 1mb
+
+    ########################################
+    # AOF / RDB File safety
+    ########################################
+
+    # 백그라운드 저장 실패 시 쓰기 중단
+    # → 손상된 데이터 확산 방지
+    stop-writes-on-bgsave-error yes
+
+    # RDB 파일 압축 및 체크섬
+    rdbcompression yes
+    rdbchecksum yes

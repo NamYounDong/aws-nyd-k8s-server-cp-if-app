@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Redis 데이터(AOF/RDB)를 저장할 PVC 이름
+  name: redis-data
+
+  # infra 전용 네임스페이스
+  # → 애플리케이션 PVC와 분리하여 관리
+  namespace: infra
+
+spec:
+  # ===============================
+  # 접근 모드
+  # ===============================
+
+  # ReadWriteOnce (RWO)
+  # → 단일 노드에서만 읽기/쓰기 가능
+  # → Redis 단일 인스턴스 구조에 적합
+  # → EBS 스토리지 특성상 필수 선택
+  accessModes:
+    - ReadWriteOnce
+
+  # ===============================
+  # 스토리지 클래스
+  # ===============================
+
+  # AWS EBS gp3 기반 StorageClass
+  # → 안정적인 IOPS / 비용 효율
+  # → Stateful 인프라 컴포넌트에 적합
+  storageClassName: ebs-gp3
+
+  # ===============================
+  # 용량 요청
+  # ===============================
+
+  resources:
+    requests:
+      # 요청 스토리지 용량
+      # → AOF 파일 증가 + RDB 스냅샷 여유 고려
+      # → Redis 메모리(384mb) 대비 충분한 여유
+      storage: 5Gi

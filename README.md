@@ -77,6 +77,38 @@ Anywhere                   ALLOW       192.168.0.0/16
 80/tcp (v6)                ALLOW       Anywhere (v6)             
 443/tcp (v6)               ALLOW       Anywhere (v6) 
 
+
+# UFW 활성화 전 기본 정책(권장)
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# SSH (22) - 지금은 Anywhere로 열어둠(추후 본인 IP로 제한 추천)
+sudo ufw allow 22/tcp
+
+# kubelet (10250) - VPC 내부만
+sudo ufw allow from 172.31.0.0/16 to any port 10250 proto tcp
+
+# kube-apiserver (6443) - VPC 내부만
+sudo ufw allow from 172.31.0.0/16 to any port 6443 proto tcp
+
+# VXLAN (4789/udp) - CNI가 Flannel/Calico-VXLAN이면 필요(내부만)
+sudo ufw allow from 172.31.0.0/16 to any port 4789 proto udp
+
+# (네 룰에 있는) 192.168.0.0/16 전체 허용 - 정말 필요할 때만!
+sudo ufw allow from 192.168.0.0/16 to any
+
+# IPv6에서 22/80/443 전체 허용(네 출력 그대로)
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# UFW 켜기
+sudo ufw --force enable
+
+# 확인
+sudo ufw status numbered
+
+
 ```
 
 ### 4) 0-4. kubeadm / kubelet / kubectl 설치
@@ -232,7 +264,7 @@ kubectl label node <노드이름> edge-ingress=enabled
 ```
 ## 2. 인프라 서버 ( DB / Redis / Kafka / RabbitMQ ) - ST : 추후 30GB
 ```text
-1) 인스턴스: t3.small
+1) 인스턴스: t3a.medium
 2) 역할:
    - DB (MariaDB / PostgreSQL)
    - Redis
@@ -241,7 +273,32 @@ kubectl label node <노드이름> edge-ingress=enabled
 3) 특징:
    - Jenkins는 별도 노드 분리 안 하고 앱과 공존
    - 리소스 requests/limits로 통제
+
+4) JOIN 후 라벨링 
+kubectl label node <INFRA_NODE_NAME> role=infra
+
+5) 테인트 (인프라 전용으로 강제)
+kubectl taint node <INFRA_NODE_NAME> dedicated=infra:NoSchedule
+
+
+이렇게 해두면 Redis/DB 같은 인프라만 toleration 달아서 올라가게 만들 수 있음.
 ```
+
+## 2-1. k8s/infra/redis/ 구조
+```text
+k8s/
+  infra/
+    redis/
+      00-namespace.yaml
+      01-configmap-redis-conf.yaml
+      02-pvc.yaml
+      03-deployment.yaml
+      04-service.yaml
+      05-networkpolicy.yaml        # (선택) app/scg 준비되면 켜기
+      kustomization.yaml
+```
+
+
 
 ## 3. Application + Jenkins 서버 - ST : 추후 50GB
 ```text
@@ -446,7 +503,6 @@ read -s -p "BasicAuth password: " PASS; echo
 htpasswd -nbB <젠킨스 ID> "$PASS" > /tmp/jenkins-auth
 
 unset PASS
-
 
 kubectl -n cicd create secret generic jenkins-basic-auth \
   --from-file=auth=/tmp/jenkins-auth \
