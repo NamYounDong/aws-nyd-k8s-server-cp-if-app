@@ -23,9 +23,14 @@ data:
 
     # 외부 노출은 Service(ClusterIP)로만,
     # 보안그룹에서 6379 외부 오픈 금지 전제
-    tcp-backlog 511          # 동시 연결 대기 큐
-    timeout 0                # 유휴 연결 강제 종료 없음
-    tcp-keepalive 300        # 죽은 커넥션 감지(초)
+    # 동시 연결 대기 큐
+    tcp-backlog 511
+
+    # 유휴 연결 강제 종료 없음
+    timeout 0
+
+    # 죽은 커넥션 감지(초)
+    tcp-keepalive 300
 
     # (중요) Dangerous commands hardening
     # 운영 중 실수 또는 공격으로 인한 데이터 유실 방지
