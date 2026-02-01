@@ -8,7 +8,8 @@ metadata:
   namespace: infra
 
 spec:
-  # 단일 인스턴스 Redis (HA는 Sentinel/Cluster로 별도 구성)
+  # Redis 단일 인스턴스
+  # (RWO PVC 사용 → replicas는 반드시 1)
   replicas: 1
 
   # Deployment가 관리할 Pod 셀렉터
@@ -18,67 +19,102 @@ spec:
 
   template:
     metadata:
-      # Pod 라벨 (Service / NetworkPolicy / 모니터링 기준)
+      # Pod 식별용 라벨
+      # Service / NetworkPolicy / 모니터링 기준
       labels:
         app: redis
 
     spec:
       # ===============================
+      # 인프라 노드 전용 스케줄링
+      # ===============================
+
+      # role=infra 라벨이 붙은 노드에만 스케줄
+      # (EBS + Redis를 특정 노드군에 고정)
+      nodeSelector:
+        role: infra
+
+      # infra 전용 노드에 설정된
+      # dedicated=infra:NoSchedule taint 허용
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "infra"
+          effect: "NoSchedule"
+
+      # ===============================
+      # Pod 보안 컨텍스트 (PVC 권한 안정화)
+      # ===============================
+
+      # fsGroup:
+      # - PVC 마운트 시 디렉터리 GID를 999로 설정
+      # - Redis(non-root)가 /data에 쓰기 가능하게 함
+      #
+      # fsGroupChangePolicy:
+      # - 이미 root가 아니면 chown 재수행 안 함
+      # - Pod 재기동 시 불필요한 권한 변경 방지
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: "OnRootMismatch"
+
+      # SIGTERM 이후 최대 30초 대기
+      # (AOF/RDB flush, 정상 종료 보장)
+      terminationGracePeriodSeconds: 30
+
+      # ===============================
       # 컨테이너 정의
       # ===============================
       containers:
         - name: redis
-          # Redis 7.4 Alpine 이미지 (경량, 빠른 기동)
+
+          # Redis 7.4 Alpine (경량 이미지)
           image: redis:7.4-alpine
 
-          # 노드에 이미지가 있으면 재다운로드 생략
+          # 노드에 이미지 있으면 재다운로드 생략
           imagePullPolicy: IfNotPresent
 
           ports:
-            # Redis 서비스 포트
-            # Service에서 targetPort로 참조됨
+            # Redis 기본 포트
             - name: redis
               containerPort: 6379
 
           # ===============================
-          # 실행 명령 (패스워드 적용)
+          # 실행 명령
           # ===============================
 
           # sh -lc 사용 이유
-          # 1) 환경변수($REDIS_PASSWORD) 확장을 쉘에서 처리
-          # 2) exec로 redis-server를 PID 1로 실행 (시그널 정상 처리)
-          command: ["sh","-lc"]
-
+          # 1) Secret 환경변수 확장 ($REDIS_PASSWORD)
+          # 2) exec로 redis-server를 PID 1로 실행
+          #    → SIGTERM 정상 수신
+          command: ["sh", "-lc"]
           args:
-            # ConfigMap 기반 redis.conf를 사용하고
-            # Secret에서 주입된 패스워드를 requirepass로 적용
             - >
               exec redis-server /usr/local/etc/redis/redis.conf
               --requirepass "$REDIS_PASSWORD"
 
           # ===============================
-          # 환경변수 주입 (Secret)
+          # 환경변수 주입
           # ===============================
 
-          # redis-auth Secret의 key/value를 환경변수로 주입
-          # 예: REDIS_PASSWORD
+          # redis-auth Secret 전체를 환경변수로 주입
+          # (REDIS_PASSWORD 필수)
           envFrom:
             - secretRef:
                 name: redis-auth
 
           # ===============================
-          # 리소스 관리 (QoS 안정화)
+          # 리소스 관리
           # ===============================
 
+          # requests:
+          # - 노드 스케줄 보장
+          #
+          # limits:
+          # - Redis 폭주 시 노드 보호
           resources:
-            # 최소 보장 리소스
-            # → 노드 부하 상황에서도 Redis 생존 보장
             requests:
               cpu: "50m"
               memory: "256Mi"
-
-            # 최대 사용 제한
-            # → 폭주 시 노드 전체 장애 방지
             limits:
               cpu: "300m"
               memory: "512Mi"
@@ -88,30 +124,28 @@ spec:
           # ===============================
 
           # livenessProbe:
-          # - Redis 프로세스가 살아있는지 확인
-          # - 인증 포함 (NOAUTH 오탐지 방지)
+          # - Redis 프로세스 생존 여부
+          # - 인증 포함 (NOAUTH 오탐 방지)
           livenessProbe:
             exec:
               command:
-                - "sh"
-                - "-lc"
-                - "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"
-            # 초기 기동/AOF 로드 시간 고려
+                - sh
+                - -lc
+                - 'redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG'
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 3
-            # 연속 실패 6회 시 컨테이너 재시작
             failureThreshold: 6
 
           # readinessProbe:
-          # - 트래픽을 받아도 되는 상태인지 확인
+          # - 트래픽을 받아도 되는 상태인지 판단
           # - 실패 시 Service 엔드포인트에서 제외
           readinessProbe:
             exec:
               command:
-                - "sh"
-                - "-lc"
-                - "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"
+                - sh
+                - -lc
+                - 'redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG'
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -121,19 +155,12 @@ spec:
           # 컨테이너 보안 하드닝
           # ===============================
 
+          # root 실행 금지 + 최소 권한 원칙
           securityContext:
-            # 권한 상승 금지 (setuid 등 차단)
             allowPrivilegeEscalation: false
-
-            # root 사용자 실행 금지
             runAsNonRoot: true
-
-            # Redis 프로세스를 고정 UID/GID로 실행
-            # (fsGroup과 함께 PVC 쓰기 권한 확보)
             runAsUser: 999
             runAsGroup: 999
-
-            # 모든 Linux capability 제거 (최소 권한 원칙)
             capabilities:
               drop: ["ALL"]
 
@@ -141,30 +168,29 @@ spec:
           # 볼륨 마운트
           # ===============================
 
+          # Redis 설정 파일 (ConfigMap)
+          # subPath 사용 → 단일 파일만 덮어씀
           volumeMounts:
-            # ConfigMap의 redis.conf를 설정 파일로 마운트
-            # subPath로 단일 파일만 정확히 덮어씀
             - name: redis-config
               mountPath: /usr/local/etc/redis/redis.conf
               subPath: redis.conf
               readOnly: true
 
             # Redis 데이터 디렉터리
-            # AOF / RDB 파일이 PVC에 영속 저장됨
+            # AOF / RDB 영속 저장
             - name: redis-data
               mountPath: /data
 
       # ===============================
       # 볼륨 정의
       # ===============================
-
       volumes:
-        # Redis 설정 파일(ConfigMap)
+        # Redis 설정(ConfigMap)
         - name: redis-config
           configMap:
             name: redis-config
 
-        # Redis 데이터 영속화를 위한 PVC
+        # Redis 데이터 PVC (EBS gp3 / RWO)
         - name: redis-data
           persistentVolumeClaim:
             claimName: redis-data
